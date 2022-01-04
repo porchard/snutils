@@ -1,0 +1,82 @@
+#!/usr/bin/env python
+
+import argparse
+from snutils import mm
+import pandas as pd
+
+parser = argparse.ArgumentParser()
+subparsers = parser.add_subparsers(dest='subcommand', help='sub-command help')
+
+merge_parser = subparsers.add_parser('merge', help='Merge mm files.')
+merge_parser.add_argument('--matrices', required=True, nargs='+', help='MM files.')
+merge_parser.add_argument('--features', required=True, nargs='+', help='Feature files. Each file must contain the same features.')
+merge_parser.add_argument('--barcodes', required=True, nargs='+', help='Barcode files. Each barcode can only appear in one list.')
+merge_parser.add_argument('--prefix', required=True, help='Prefix for new output files.')
+
+subset_parser = subparsers.add_parser('subset', help='Subset mm files.')
+subset_parser.add_argument('--matrix', required=True, help='MM file.')
+subset_parser.add_argument('--features', required=True, help='Feature file.')
+subset_parser.add_argument('--barcodes', required=True, help='Barcode file.')
+subset_parser.add_argument('--keep-barcodes', dest='keep_barcodes', required=True, help='Keep barcodes listed in this file (default: keep all barcodes).')
+subset_parser.add_argument('--keep-features', dest='keep_features', required=True, help='Keep features listed in this file (default: keep all features).')
+subset_parser.add_argument('--prefix', required=True, help='Prefix for new output files.')
+
+countbarcodes_parser = subparsers.add_parser('countbarcodes', help='Get per-barcode counts.')
+countbarcodes_parser.add_argument('matrix', help='MM file.')
+countbarcodes_parser.add_argument('features', help='Feature file.')
+countbarcodes_parser.add_argument('barcodes', help='Barcode file.')
+
+countfeatures_parser = subparsers.add_parser('countfeatures', help='Get per-feature counts.')
+countfeatures_parser.add_argument('matrix', help='MM file.')
+countfeatures_parser.add_argument('features', help='Feature file.')
+countfeatures_parser.add_argument('barcodes', help='Barcode file.')
+
+args = parser.parse_args()
+
+if args.subcommand == 'merge':
+    MATRICES = args.matrices
+    FEATURES = args.features
+    BARCODES = args.barcodes
+
+    assert(len(MATRICES) == len(FEATURES))
+    assert(len(MATRICES) == len(BARCODES))
+
+    x = [mm.read_mm(MATRICES[i], FEATURES[i], BARCODES[i]) for i in range(len(MATRICES))]
+    mtx, features, barcodes = mm.mm_merge([i[0] for i in x], [i[1] for i in x], [i[2] for i in x])
+    mm.write_mm(mtx, features, barcodes, prefix=args.prefix)
+
+elif args.subcommand == 'subset':
+    MATRIX = args.matrix
+    FEATURES = args.features
+    BARCODES = args.barcodes
+    KEEP_BARCODES = args.keep_barcodes
+    KEEP_FEATURES = args.keep_features
+
+    mtx, features, barcodes = mm.read_mm(MATRIX, FEATURES, BARCODES)
+    if KEEP_BARCODES is not None:
+        keep_barcodes = pd.read_csv(KEEP_BARCODES, sep='\t', header=None).apply(lambda x: '\t'.join(x), axis=1).to_list()
+        barcodes = [i for i in barcodes if i in set(keep_barcodes)]
+        mtx = mtx[mtx.barcode.isin(keep_barcodes)]
+    if KEEP_FEATURES is not None:
+        keep_features = pd.read_csv(KEEP_FEATURES, sep='\t', header=None).apply(lambda x: '\t'.join(x), axis=1).to_list()
+        features = [i for i in features if i in set(keep_features)]
+        mtx = mtx[mtx.feature.isin(keep_features)]
+    mm.write_mm(mtx, features, barcodes, prefix=args.prefix)
+
+elif args.subcommand == 'countbarcodes':
+    MATRIX = args.matrix
+    FEATURES = args.features
+    BARCODES = args.barcodes
+    
+    feature_counts, barcode_counts = mm.get_total_counts_mm(MATRIX, FEATURES, BARCODES)
+    for barcode, count in barcode_counts.items():
+        print(f'{barcode}\t{count}')
+
+elif args.subcommand == 'countfeatures':
+    MATRIX = args.matrix
+    FEATURES = args.features
+    BARCODES = args.barcodes
+    
+    feature_counts, barcode_counts = mm.get_total_counts_mm(MATRIX, FEATURES, BARCODES)
+    for feature, count in feature_counts.items():
+        print(f'{feature}\t{count}')
